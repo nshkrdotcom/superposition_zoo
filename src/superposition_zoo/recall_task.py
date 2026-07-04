@@ -7,14 +7,20 @@ requires a sequence-mixing primitive to do real work: a purely local
 (per-position) processor cannot solve it, because the correct output at a
 pointer position depends on content that lives at a different position.
 
-This is a *positional* pointer/copy task: the model is told, via the
-``control`` channel, how many positions back to retrieve from, and must
-route the right earlier position's feature vector there without corrupting
-it. It is deliberately simpler than full content-addressed (key-based)
-associative recall (MQAR) -- it does not require searching for a matching
-key, only correct, lossless routing over a known offset. That is an honest
-scope choice for a first version, not a hidden limitation: content-addressed
-recall is a natural harder follow-up variant, not implemented here.
+This is a *content-addressed* pointer/copy task, matching the standard
+multi-query associative-recall (MQAR) design used to compare sequence-
+mixing primitives in the Zoology/Based line of work (Arora et al.): every
+position carries a random "key" vector, and a pointer's key is set to
+*exactly match* its true source position's key. Retrieval is "find the
+earlier position whose key matches mine," which is precisely the kind of
+content-similarity matching softmax/QK attention is naturally suited to
+learn -- unlike this benchmark's first version, which encoded the source as
+a continuous relative-offset scalar and required the model to perform
+positional arithmetic from it. That version turned out to be architecturally
+much harder to learn (verified by actually training standard attention on
+it -- recall accuracy stayed near zero even after fixing a separate,
+necessary positional-encoding bug), which is exactly the kind of thing a
+real training run catches that a unit test alone does not.
 """
 
 from __future__ import annotations
@@ -24,6 +30,12 @@ from dataclasses import dataclass
 import torch
 
 from superposition_zoo.features import generate_features
+
+KEY_DIM = 8
+"""Dimensionality of the per-position random key vector."""
+
+CONTROL_CHANNELS = 1 + KEY_DIM
+"""``[is_pointer_flag, key_0, ..., key_{KEY_DIM-1}]``."""
 
 
 @dataclass
@@ -37,7 +49,8 @@ class RecallBatch:
     """``(B, T, F)``: local content, zeroed at pointer positions."""
 
     control: torch.Tensor
-    """``(B, T, 2)``: ``[is_pointer_flag, normalized_offset]`` per position."""
+    """``(B, T, CONTROL_CHANNELS)``: ``[is_pointer_flag, key...]`` per position.
+    A pointer's key is set to exactly match its true source position's key."""
 
     target: torch.Tensor
     """``(B, T, F)``: what the model should reconstruct at every position."""
@@ -110,7 +123,7 @@ def generate_recall_batch(
     active_mask = content_active.clone()
     is_pointer = torch.zeros(batch_size, seq_len, dtype=torch.bool)
     source_position = torch.full((batch_size, seq_len), -1, dtype=torch.long)
-    control = torch.zeros(batch_size, seq_len, 2)
+    key = torch.randn(batch_size, seq_len, KEY_DIM, generator=generator)
 
     eligible = torch.arange(min_gap, seq_len)
 
@@ -130,8 +143,9 @@ def generate_recall_batch(
             input_features[b, t] = 0.0
             target[b, t] = content_values[b, s]
             active_mask[b, t] = content_active[b, s]
-            control[b, t, 0] = 1.0
-            control[b, t, 1] = (t - s) / seq_len
+            key[b, t] = key[b, s]  # exact key match: this is the retrieval signal
+
+    control = torch.cat([is_pointer.float().unsqueeze(-1), key], dim=-1)
 
     return RecallBatch(
         input_features=input_features,

@@ -47,6 +47,29 @@ def test_retrieval_accuracy_no_pointers_returns_nan_not_fabricated():
     assert math.isnan(result["accuracy"])
 
 
+def test_retrieval_accuracy_threshold_is_invariant_to_feature_count():
+    # regression: the threshold must apply to the *average* per-feature
+    # error, not a sum, so the same threshold value classifies "equally
+    # good" reconstructions as correct regardless of how many features the
+    # config uses. Two configurations with identical per-feature error but
+    # different n_features must agree.
+    per_feature_error = 0.02
+    threshold = 0.05
+
+    small = torch.full((1, 1, 3), per_feature_error).sqrt()
+    small_target = torch.zeros(1, 1, 3)
+    small_is_pointer = torch.tensor([[True]])
+
+    large = torch.full((1, 1, 30), per_feature_error).sqrt()
+    large_target = torch.zeros(1, 1, 30)
+    large_is_pointer = torch.tensor([[True]])
+
+    small_result = retrieval_accuracy(small_target, small, small_is_pointer, threshold=threshold)
+    large_result = retrieval_accuracy(large_target, large, large_is_pointer, threshold=threshold)
+
+    assert small_result["accuracy"] == large_result["accuracy"] == 1.0
+
+
 def test_retrieval_accuracy_by_distance_buckets_correctly():
     # batch of 1, seq_len 5: pointer at t=3 with source=1 (distance 2, correct),
     # pointer at t=4 with source=0 (distance 4, wrong)

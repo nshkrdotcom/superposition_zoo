@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from superposition_zoo.recall_task import generate_recall_batch
+from superposition_zoo.recall_task import CONTROL_CHANNELS, generate_recall_batch
 
 
 def test_shapes():
@@ -11,7 +11,7 @@ def test_shapes():
         batch_size=4, seq_len=32, n_features=10, n_pointers=5, sparsity=0.6, generator=_gen()
     )
     assert batch.input_features.shape == (4, 32, 10)
-    assert batch.control.shape == (4, 32, 2)
+    assert batch.control.shape == (4, 32, CONTROL_CHANNELS)
     assert batch.target.shape == (4, 32, 10)
     assert batch.is_pointer.shape == (4, 32)
     assert batch.is_pointer.dtype == torch.bool
@@ -83,19 +83,34 @@ def test_non_pointer_positions_have_negative_one_sentinel_source():
     assert torch.all(batch.source_position[~batch.is_pointer] == -1)
 
 
-def test_control_channel_encodes_pointer_flag_and_normalized_offset():
+def test_control_channel_encodes_pointer_flag_and_matching_key():
     seq_len = 40
     batch = generate_recall_batch(
         batch_size=8, seq_len=seq_len, n_features=12, n_pointers=8, sparsity=0.5, generator=_gen()
     )
     assert torch.equal(batch.control[..., 0], batch.is_pointer.float())
-    assert torch.all(batch.control[~batch.is_pointer][..., 1] == 0.0)
     for b in range(8):
         for t in range(seq_len):
             if batch.is_pointer[b, t]:
                 s = batch.source_position[b, t].item()
-                expected_offset = (t - s) / seq_len
-                assert batch.control[b, t, 1].item() == pytest.approx(expected_offset)
+                # a pointer's key channels must exactly match its true source
+                # position's key channels -- this identity is the retrieval
+                # signal a content-addressed (MQAR-style) mixing primitive
+                # must learn to exploit.
+                assert torch.equal(batch.control[b, t, 1:], batch.control[b, s, 1:])
+
+
+def test_non_source_non_pointer_keys_are_generally_distinct():
+    # sanity: keys are drawn i.i.d. randomly, so two arbitrary unrelated
+    # positions should not coincidentally share a key (this would make the
+    # retrieval signal ambiguous). Not a hard guarantee for any possible
+    # draw, but true with overwhelming probability for continuous random
+    # vectors -- a regression check that keys aren't all being zeroed or
+    # collapsed to a constant.
+    batch = generate_recall_batch(
+        batch_size=1, seq_len=20, n_features=6, n_pointers=0, sparsity=0.5, generator=_gen()
+    )
+    assert not torch.equal(batch.control[0, 0, 1:], batch.control[0, 1, 1:])
 
 
 def test_deterministic_given_same_seed():

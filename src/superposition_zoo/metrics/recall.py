@@ -18,8 +18,12 @@ def retrieval_accuracy(
 ) -> dict[str, float | int]:
     """Fraction of pointer positions whose prediction is within ``threshold``.
 
-    "Within threshold" means the per-position squared error (summed over
-    the feature dimension) is strictly below ``threshold``. Only pointer
+    "Within threshold" means the per-position squared error, *averaged*
+    over the feature dimension (not summed), is strictly below
+    ``threshold``. Averaging keeps ``threshold``'s meaning independent of
+    ``n_features``, so the same threshold value is comparable across
+    configs with different feature counts; a sum would silently make the
+    effective bar stricter every time ``n_features`` grows. Only pointer
     positions are scored; non-pointer positions cannot affect this metric.
 
     Args:
@@ -33,7 +37,7 @@ def retrieval_accuracy(
         ``accuracy`` is ``NaN`` (not a fabricated ``0.0`` or ``1.0``) when
         there are no pointer positions to score.
     """
-    squared_error = ((target - predicted) ** 2).sum(dim=-1)
+    squared_error = ((target - predicted) ** 2).mean(dim=-1)
     pointer_errors = squared_error[is_pointer]
     num_pointers = int(is_pointer.sum().item())
 
@@ -64,7 +68,7 @@ def retrieval_accuracy_by_distance(
         A dict mapping each observed integer distance to the accuracy among
         pointer positions at that exact distance.
     """
-    squared_error = ((target - predicted) ** 2).sum(dim=-1)
+    squared_error = ((target - predicted) ** 2).mean(dim=-1)
     batch_size, seq_len = is_pointer.shape
 
     correct_by_distance: dict[int, list[bool]] = {}

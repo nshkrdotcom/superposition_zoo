@@ -1,0 +1,31 @@
+# The starting zoo comparison (doc 4 §7): five real, structurally distinct
+# mixing primitives plus vsa_binding as an honest not-yet-implemented stub
+# (leave it out of --primitives until it exists). Base config matches
+# phase1_default.yaml's validated settings (~99% recall accuracy for
+# standard attention at these settings); szoo sweep overrides
+# model.mixing_primitive_name and train.seed per (primitive, seed) row.
+#
+#   uv run szoo sweep --config configs/zoo_starting_six.yaml \
+#       --primitives standard_attention,linear_attention,delta_net,hard_routing,ssm \
+#       --seeds 0,1,2,3,4 --device cuda
+
+name: zoo_starting_six
+features:
+  n_features: 24
+  sparsity: 0.5
+recall_task:
+  seq_len: 64
+  n_pointers: 6
+  min_gap: 3
+model:
+  d_model: 64
+  mixing_primitive_name: standard_attention # overridden per sweep row
+  n_layers: 1
+  mixing_kwargs:
+    n_heads: 4
+train:
+  steps: 3000
+  batch_size: 64
+  lr: 0.003
+  seed: 0 # overridden per sweep row
+retrieval_threshold: 0.05

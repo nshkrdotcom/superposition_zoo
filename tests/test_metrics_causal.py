@@ -7,19 +7,22 @@ from superposition_zoo.recall_task import generate_recall_batch
 
 
 def _oracle_predict_fn(input_features: torch.Tensor, control: torch.Tensor) -> torch.Tensor:
-    """A hand-written 'perfect' predictor: resolves every pointer using only
-    the control channel's encoded offset, exactly as an ideal model would.
-    Used to test the causal-verification *metric*, independent of whether
-    any real trained model exists yet.
+    """A hand-written 'perfect' predictor: resolves every pointer by finding
+    the earlier position whose key exactly matches, exactly as an ideal
+    content-addressed (MQAR-style) model would. Used to test the
+    causal-verification *metric*, independent of whether any real trained
+    model exists yet.
     """
     batch, seq_len, _ = input_features.shape
     output = input_features.clone()
     for b in range(batch):
         for t in range(seq_len):
             if control[b, t, 0] > 0.5:
-                offset = round(control[b, t, 1].item() * seq_len)
-                source = t - offset
-                output[b, t] = input_features[b, source]
+                pointer_key = control[b, t, 1:]
+                for s in range(t):
+                    if control[b, s, 0] <= 0.5 and torch.equal(control[b, s, 1:], pointer_key):
+                        output[b, t] = input_features[b, s]
+                        break
     return output
 
 

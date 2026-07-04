@@ -106,7 +106,10 @@ def train(config: RunConfig, run_dir: Path | None = None, device: str = "cpu") -
         )
         predicted = model(eval_batch.input_features.to(device), eval_batch.control.to(device)).cpu()
 
-    per_feature_mse = per_feature_reconstruction_error(eval_batch.target, predicted)
+    n_features = config.features.n_features
+    per_feature_mse = per_feature_reconstruction_error(
+        eval_batch.target.reshape(-1, n_features), predicted.reshape(-1, n_features)
+    )
     packing_metrics = capacity_summary(per_feature_mse, threshold=config.retrieval_threshold)
     recall_metrics = retrieval_accuracy(
         eval_batch.target, predicted, eval_batch.is_pointer, threshold=config.retrieval_threshold

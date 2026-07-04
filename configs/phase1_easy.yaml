@@ -1,0 +1,34 @@
+# Phase 1, easy regime: short sequences, low sparsity, nearby pointers.
+# This is the positive-control config (doc 4 §4/§8) -- standard attention
+# must solve this cleanly, or something in the benchmark/model wiring is
+# broken, before any harder-regime or cross-primitive result means anything.
+#
+# Learning this task is a sharp, grokking-like phase transition (near-zero
+# recall accuracy, then a jump to ~99%+ within a few hundred steps), verified
+# empirically, not a smooth ramp -- these hyperparameters sit comfortably
+# past the observed transition point with margin. If you change
+# n_features/seq_len/n_pointers, re-verify recall_metrics.accuracy actually
+# reaches ~1.0 before trusting anything downstream.
+#
+#   uv run szoo train --config configs/phase1_easy.yaml --device cuda
+
+name: phase1_easy
+features:
+  n_features: 16
+  sparsity: 0.3
+recall_task:
+  seq_len: 32
+  n_pointers: 4
+  min_gap: 2
+model:
+  d_model: 64
+  mixing_primitive_name: standard_attention
+  n_layers: 1
+  mixing_kwargs:
+    n_heads: 4
+train:
+  steps: 3000
+  batch_size: 64
+  lr: 0.003
+  seed: 0
+retrieval_threshold: 0.05

@@ -1,0 +1,22 @@
+# Harness (src/, tests/, configs/, docs) is tracked.
+# Everything below is generated experiment output and must never be committed.
+/data/
+/runs/
+*.pt
+*.ckpt
+*.jsonl
+
+# Python / uv
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

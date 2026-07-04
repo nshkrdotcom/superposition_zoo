@@ -46,18 +46,23 @@ def _write_metrics_jsonl(path: Path, losses: list[float]) -> None:
             f.write(json.dumps({"step": step, "loss": loss}) + "\n")
 
 
-def train(config: RunConfig, run_dir: Path | None = None, device: str = "cpu") -> RunResult:
+def train(config: RunConfig, run_dir: str | Path | None = None, device: str = "cpu") -> RunResult:
     """Train a :class:`SequenceModel` on the Phase 1 recall benchmark.
 
     Args:
         config: a :class:`~superposition_zoo.config.RunConfig`.
         run_dir: if given, ``metrics.jsonl``, ``checkpoint.pt``, and
-            ``summary.json`` are written there.
+            ``summary.json`` are written there. Accepts a plain string as
+            well as a ``Path`` -- converted up front so a caller's typo
+            fails immediately rather than after a full (possibly
+            expensive) training run finishes and only the final artifact
+            write blows up.
         device: torch device string.
 
     Returns:
         A :class:`RunResult`.
     """
+    run_dir = Path(run_dir) if run_dir is not None else None
     generator = torch.Generator()
     generator.manual_seed(config.train.seed)
     torch.manual_seed(config.train.seed)
@@ -135,13 +140,17 @@ def train(config: RunConfig, run_dir: Path | None = None, device: str = "cpu") -
     return result
 
 
-def train_phase0(config: Phase0Config, run_dir: Path | None = None, device: str = "cpu") -> dict:
+def train_phase0(config: Phase0Config, run_dir: str | Path | None = None, device: str = "cpu") -> dict:
     """Train a :class:`ToyAutoencoder` on the Phase 0 superposition benchmark.
 
     Returns a plain dict (not a dataclass) since Phase 0 has no recall
     metrics -- keeping its result shape visibly different from Phase 1's
     :class:`RunResult` avoids implying they are interchangeable.
+
+    ``run_dir`` accepts a plain string as well as a ``Path`` -- see
+    :func:`train`'s docstring for why this is converted up front.
     """
+    run_dir = Path(run_dir) if run_dir is not None else None
     generator = torch.Generator()
     generator.manual_seed(config.seed)
     torch.manual_seed(config.seed)

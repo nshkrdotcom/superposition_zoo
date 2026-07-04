@@ -21,6 +21,27 @@ def _tiny_run_config(mixing_primitive_name: str = "standard_attention", seed: in
     )
 
 
+def test_train_accepts_a_plain_string_run_dir_not_just_path(tmp_path):
+    # Regression: passing a str run_dir (an easy, natural mistake) used to
+    # crash with AttributeError only at the very end of training, after a
+    # full (possibly expensive) run had already completed -- caught for
+    # real when it wasted ~12 minutes of GPU time mid-tuning-experiment.
+    config = _tiny_run_config()
+    run_dir_str = str(tmp_path / "string_run_dir")
+    result = train(config, run_dir=run_dir_str)
+    assert (tmp_path / "string_run_dir" / "summary.json").exists()
+    assert result.final_loss >= 0.0
+
+
+def test_train_phase0_accepts_a_plain_string_run_dir_not_just_path(tmp_path):
+    config = Phase0Config(
+        name="tiny_phase0_str", n_features=6, d_hidden=3, sparsity=0.5, steps=10, batch_size=16
+    )
+    run_dir_str = str(tmp_path / "string_run_dir_phase0")
+    train_phase0(config, run_dir=run_dir_str)
+    assert (tmp_path / "string_run_dir_phase0" / "summary.json").exists()
+
+
 def test_train_tiny_run_creates_expected_artifacts(tmp_path):
     config = _tiny_run_config()
     run_dir = tmp_path / "tiny_test"

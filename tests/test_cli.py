@@ -111,3 +111,55 @@ def test_cli_sweep_end_to_end(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "Reliability summary" in captured.out
     assert (runs_root / "cli_sweep_test" / "sweep_results.csv").exists()
+
+
+def test_cli_causal_check_end_to_end(tmp_path, monkeypatch, capsys):
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text(
+        textwrap.dedent(
+            """
+            name: cli_causal_check_test
+            features:
+              n_features: 6
+              sparsity: 0.3
+            recall_task:
+              seq_len: 12
+              n_pointers: 2
+              min_gap: 2
+            model:
+              d_model: 16
+              mixing_primitive_name: standard_attention
+            train:
+              steps: 10
+              batch_size: 8
+            """
+        )
+    )
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        "sys.argv", ["szoo", "train", "--config", str(config_path), "--runs-root", str(runs_root)]
+    )
+    main()
+
+    checkpoint_path = runs_root / "cli_causal_check_test" / "checkpoint.pt"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "szoo",
+            "causal-check",
+            "--config",
+            str(config_path),
+            "--checkpoint",
+            str(checkpoint_path),
+            "--n-checks",
+            "5",
+            "--batch-size",
+            "16",
+        ],
+    )
+    main()
+
+    captured = capsys.readouterr()
+    assert "causal check for standard_attention" in captured.out
+    assert "moved_toward_substitute_fraction" in captured.out

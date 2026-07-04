@@ -11,7 +11,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import torch
+
+from superposition_zoo.causal_check import causal_check_report, load_trained_model
 from superposition_zoo.config import load_config, load_phase0_config
+from superposition_zoo.recall_task import generate_recall_batch
 from superposition_zoo.sweep import run_sweep, summarize_sweep
 from superposition_zoo.train import train, train_phase0
 
@@ -58,6 +62,37 @@ def _cmd_sweep(args: argparse.Namespace) -> None:
     print(f"\nfull results written to {runs_root / 'sweep_results.csv'}")
 
 
+def _cmd_causal_check(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+    # a fresh, held-out generator seed so the check isn't run on
+    # training-time-seen examples
+    generator = torch.Generator()
+    generator.manual_seed(config.train.seed + 10_000)
+
+    model = load_trained_model(
+        checkpoint_path=args.checkpoint,
+        n_features=config.features.n_features,
+        d_model=config.model.d_model,
+        mixing_primitive_name=config.model.mixing_primitive_name,
+        n_layers=config.model.n_layers,
+        mixing_kwargs=config.model.mixing_kwargs,
+        device=args.device,
+    )
+    batch = generate_recall_batch(
+        batch_size=args.batch_size,
+        seq_len=config.recall_task.seq_len,
+        n_features=config.features.n_features,
+        n_pointers=config.recall_task.n_pointers,
+        sparsity=config.features.sparsity,
+        min_gap=config.recall_task.min_gap,
+        generator=generator,
+    )
+    report = causal_check_report(model, batch, n_checks=args.n_checks, generator=generator)
+    print(f"causal check for {config.model.mixing_primitive_name} ({args.checkpoint}):")
+    for key, value in report.items():
+        print(f"  {key}: {value}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="szoo")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -85,6 +120,17 @@ def build_parser() -> argparse.ArgumentParser:
     sweep_parser.add_argument("--runs-root", default="runs", dest="runs_root")
     sweep_parser.add_argument("--device", default="cpu")
     sweep_parser.set_defaults(func=_cmd_sweep)
+
+    causal_check_parser = subparsers.add_parser(
+        "causal-check",
+        help="Ground-truth activation patching against a real trained checkpoint",
+    )
+    causal_check_parser.add_argument("--config", required=True)
+    causal_check_parser.add_argument("--checkpoint", required=True)
+    causal_check_parser.add_argument("--n-checks", type=int, default=50, dest="n_checks")
+    causal_check_parser.add_argument("--batch-size", type=int, default=256, dest="batch_size")
+    causal_check_parser.add_argument("--device", default="cpu")
+    causal_check_parser.set_defaults(func=_cmd_causal_check)
 
     return parser
 

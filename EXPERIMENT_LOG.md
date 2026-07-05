@@ -286,3 +286,60 @@ accuracy) because the later extended-training runs (13.8%→24.2% and
 persisted a checkpoint. Re-running interference analysis against their
 best (24000-step) checkpoints is a clear, cheap follow-up once those are
 retrained with `run_dir` set.
+
+## 2026-07-04 — Extended trials complete: `ssm`'s plateau generalizes to `default` (checklist item 3)
+
+**What:** monitored single-seed trials at 24000 steps for `linear_attention`
+and `delta_net` (`default` config, lr=3e-3, up from round 2's 8000 steps),
+and `ssm` at 8000 steps on `default` itself (not just `easy`, closing the
+gap flagged at the end of round 2).
+
+**Result:**
+
+| primitive | 8000 steps | 24000 steps | shape |
+|---|---:|---:|---|
+| `linear_attention` | 13.8% | 24.2% | smooth, slowing (asymptotic-looking) |
+| `delta_net` | 21.1% | 30.9% | noisier, also slowing |
+| `ssm` (on `default`, not `easy`) | — | 1.17% (max 1.24% at step 7000) | flat |
+
+**Interpretation:** `ssm`'s plateau is now confirmed on the actual harder
+config, not just `easy` — checklist item 3 is closed, and combined with the
+literature check above (Mamba needs its short-convolution component for
+recall; this repo's `ssm` has none), this is now a well-grounded, not just
+observed, negative result. `linear_attention`/`delta_net` both continued
+improving from 8000→24000 steps (roughly +10 points each) but with clearly
+diminishing returns and no `hard_routing`-style transition — see the
+stopping-rule entry immediately below for what this means for further
+step-count escalation.
+
+## 2026-07-04 — Stopping rule for the tuning search (checklist item 15)
+
+Per doc 3's own advice: writing this down now, informed by real trajectory
+data, specifically so "still improving, needs more steps" doesn't become an
+unfalsifiable excuse to keep extending the search indefinitely.
+
+**The rule, as applied to `linear_attention`/`delta_net` on `default`:**
+tripling the step budget (8000→24000) bought roughly +10 percentage points
+for each, with a smooth, decelerating (not accelerating) curve and no sign
+of a `hard_routing`-style sharp transition anywhere in that range. That
+pattern — diminishing returns, no transition — is the stopping condition:
+further step-count escalation within this project is deprioritized in
+favor of (a) replicating at a *fixed, already-observed-informative* step
+count across real seeds, and (b) treating "these two primitives plateau
+well below the attention-family primitives at this parameter budget, on
+this task" as the current working conclusion, revisable if a future,
+specific reason (not just "try more steps and see") comes up to revisit it.
+
+**Concretely:** the next replication round uses **16000 steps** (not
+24000) — it captures most of the observed gain (`linear_attention` 19.5% at
+16000 vs. 24.2% at 24000; `delta_net` 27.0% at 16000 vs. 30.9% at 24000,
+each within ~5 points of the 24000-step value) at meaningfully lower cost,
+and persists real checkpoints this time so the interference measurement
+above can be redone against each primitive's best available version rather
+than its round-1, 3000-step checkpoint.
+
+**This rule does not apply to `ssm`**, whose stopping point was already
+decided differently: two learning rates, both flat by step 4000, now
+confirmed on both difficulty tiers — that's a plateau-shape signal, not a
+still-rising one, and doesn't call for the same "diminishing returns"
+reasoning at all.

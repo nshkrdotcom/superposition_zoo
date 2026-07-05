@@ -497,3 +497,93 @@ follow-through already in progress (items 1/8's redo) and the
 documentation pass (README, AGENTS.md) than opening a new benchmark
 variant with its own full TDD cycle. Flagged here with enough detail that
 picking this up cold later doesn't require re-deriving the design.
+
+## 2026-07-04 — 16000-step replication complete; interference/causal redone on best checkpoints (checklist items 1, 8, 4 redo)
+
+**What:** the stopping-rule-informed replication (3 seeds each,
+`linear_attention`/`delta_net`, 16000 steps, `default` config, persisted
+checkpoints this time) finished. Redid the interference measurement and
+causal-check against the new best checkpoints (seed with highest recall
+accuracy each).
+
+**Replication result:**
+
+| primitive | seed 0 | seed 1 | seed 2 | mean |
+|---|---:|---:|---:|---:|
+| `linear_attention` | 23.4% | 23.2% | 24.5% | 23.7% |
+| `delta_net` | 31.8% | 35.4% | 33.1% | 33.4% |
+
+Tight seed-to-seed spread for both — this is now a real, replicated number,
+not a single-seed spot-check, closing checklist item 1.
+
+**Interference and causal-check, best checkpoint of each (`linear_attention`
+seed 0, `delta_net` seed 1), vs. their earlier round-1 (3000-step, ~3%
+accuracy) checkpoints:**
+
+| checkpoint | recall accuracy | pointer mean\|interference\| | relative movement (causal) |
+|---|---:|---:|---:|
+| `linear_attention` round 1 (3000 steps) | 2.9% | 0.00355 | 4.9% |
+| `linear_attention` 16k (best seed) | 23.4%→19.0% (fresh batch) | 0.00308 | 24.7% |
+| `delta_net` round 1 (3000 steps) | 3.6% | 0.00347 | 5.6% |
+| `delta_net` 16k (best seed) | 35.4%→35.8% (fresh batch) | 0.00287 | 30.8% |
+
+**Interpretation:** both interference and causal effect size improved
+substantially and consistently alongside accuracy — real, sensible,
+internally-consistent movement in the expected direction, not noise. But
+both primitives, even at their best available training in this project,
+remain far short of `standard_attention` (92.9% relative movement,
+0.00051 interference) and `hard_routing` (82.6%, 0.00227). The
+accuracy/interference/causal-effect ordering across all 5 real primitives
+is now fully consistent: `standard_attention` > `hard_routing` ≫
+`delta_net` ≳ `linear_attention` ≫ `ssm`, on every one of the three
+measurements this project makes. No further dissociation beyond the one
+already noted (`standard_attention` vs. `hard_routing`'s disproportionate
+interference gap relative to their similar accuracy) has turned up in this
+pass.
+
+## 2026-07-04 — Lean difficulty grid (checklist item 9)
+
+**What:** two quick difficulty variations on `standard_attention` (3000
+steps, the config already known to transition quickly at this lr):
+higher sparsity (0.8 vs. default 0.5, i.e. fewer active features per
+position) and more pointers (10 vs. default 6).
+
+**Result:** 98.2% (higher sparsity) and 99.8% (more pointers) recall
+accuracy — `standard_attention` isn't meaningfully stressed by either
+change at this scale. **Informative on its own:** the difficulty knobs
+tried here aren't actually hard for a working retrieval mechanism to
+begin with; they'd need to be pushed further (much higher `n_pointers`,
+much longer `seq_len`, or reduced `d_model`/capacity) to matter for an
+architecture that already gets the mechanism right. This grid is more
+useful for testing *whether a struggling primitive gets relatively worse*
+as difficulty increases than for stressing the reference architecture —
+a natural next grid to run once a specific comparison question calls for
+it, rather than as a general-purpose sweep.
+
+## 2026-07-04 — First depth check: `standard_attention` at `n_layers=2` (checklist item 11)
+
+**What:** trained `standard_attention` with `n_layers=2` (double the
+parameters, 103,704 vs. 53,720) on `default`, 3000 steps, same
+hyperparameters as the 1-layer reference, then ran `szoo causal-check`
+against it.
+
+**Result:** 84.6% recall accuracy (vs. the 1-layer model's 99.0% at the
+same step count and hyperparameters) and 73.7% relative movement (vs.
+92.9% for 1-layer).
+
+**Interpretation — genuinely inconclusive on the self-repair question,
+and worth being precise about why:** more depth did not automatically
+help here; the 2-layer model is *behind* the 1-layer model at this same
+step budget, not ahead, on both accuracy and causal-effect size. That's
+plausibly just "more capacity needs more steps to converge," not evidence
+about self-repair specifically — self-repair (doc 3 §4's concern) is
+about whether a *component's* causal effect looks artificially small
+because downstream layers compensate for an intervention, and testing
+that properly requires comparing relative movement at *matched* accuracy
+levels, not comparing a well-converged 1-layer model against an
+under-converged 2-layer one. The 73.7%-vs-92.9% gap here is consistent
+with the accuracy gap (84.6% vs. 99.0%) and doesn't obviously exceed it in
+a way that would specifically implicate self-repair. This is a real first
+data point, not a real answer — the matched-accuracy comparison (train
+the 2-layer model longer, to ~99%, then compare relative movement) is the
+actual next step for this question, not yet done.

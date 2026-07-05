@@ -163,31 +163,44 @@ See `.gitignore` for the exact harness-vs-data split.
 
 ## Current state (summary — see `EXPERIMENT_LOG.md` for the full history)
 
-Two rounds of zoo sweeps plus a focused follow-up have run so far. The
-short version:
+Two zoo sweeps plus a full tuning/replication/measurement follow-up have
+run so far. The short version:
 
 - **`standard_attention` and `hard_routing`** both converge to strong
-  recall accuracy (99.0% and ~86-92% across seeds, respectively) given
+  recall accuracy (99.0%, and 85.7-91.9% across 3 replicated seeds) given
   enough training steps, and both have been **causally verified** against
   real checkpoints — patching the true source position moves the model's
   output cleanly toward the substituted content (92.9% and 82.6% relative
   movement, a corrected metric — see the log for why the naive boolean
   version of this check is misleading).
-- **`linear_attention` and `delta_net`** improve substantially with more
-  training (round 1 → extended trials: 2.9%→24.2%, 3.6%→30.9%) but show no
-  sign of `hard_routing`'s sharp transition — smooth, decelerating curves,
-  genuinely unresolved whether they'd eventually close the gap.
+- **`linear_attention` and `delta_net`** are now fully replicated (3 seeds
+  each, 16000 steps): 23.7% and 33.4% mean recall accuracy. Both show
+  smooth, decelerating improvement with more training and no sign of
+  `hard_routing`'s sharp transition; both remain far behind the
+  attention-family primitives on every measurement (accuracy, causal
+  effect size, feature-isolation quality) even at their best available
+  training in this project.
 - **`ssm`** is the one primitive with real plateau evidence (two learning
   rates, same ~5% ceiling, confirmed on both difficulty tiers) — consistent
   with, and explained by, published Mamba-mechanism literature (recall
   needs a convolution/gating component this minimal implementation
   doesn't have).
-- **The first real feature-isolation measurement** found that
-  `standard_attention` and `hard_routing`, despite similar recall accuracy,
-  show a 4.4x gap in pointer-position interference — the first hint of the
-  accuracy/isolation *dissociation* this whole project is looking for, from
-  one batch, one seed each. Not yet a finding; the clearest next thing to
-  replicate.
+- **Feature-isolation measurement**, now run against every primitive's
+  best available checkpoint: the accuracy / causal-effect / interference
+  ordering is fully consistent across all three measurements —
+  `standard_attention` > `hard_routing` ≫ `delta_net` ≳ `linear_attention`
+  ≫ `ssm`. One real dissociation persists: `standard_attention` and
+  `hard_routing` have similar accuracy (99.0% vs. 91.9%) but a
+  disproportionate 4.4x gap in pointer-position interference — the
+  clearest still-unreplicated hint of the accuracy/isolation dissociation
+  this whole project exists to look for.
+- **A lean difficulty grid and first depth check** ran too: `standard_attention`
+  isn't meaningfully stressed by higher sparsity or more pointers at this
+  scale (98-100% either way); a 2-layer version of it under-performs the
+  1-layer reference at matched step count and hyperparameters (84.6% vs.
+  99.0%), which reads as "needs more steps to converge with more capacity,"
+  not yet evidence about the self-repair question depth was meant to probe
+  — that needs a matched-accuracy comparison, not yet done.
 - A **literature check** confirmed the individual ingredients here (MQAR,
   Mamba's recall limitations, pairwise-comparison-vs-compressed-state) are
   established; the specific combination (ground-truth feature-isolation

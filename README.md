@@ -133,10 +133,17 @@ gitignored — they're reproducible from a config and a seed, never
 hand-edited, never committed. See `.gitignore` for the exact harness-vs-data
 split.
 
-## First zoo sweep result (preliminary — read the caveat)
+## Zoo sweep results, round 2: per-primitive tuning + causal verification
 
-Run on an RTX 5060 Ti, `configs/zoo_starting_six.yaml`, 3 seeds, ~35 minutes
-total:
+The first pass (below, "round 1") used hyperparameters tuned only against
+`standard_attention`. That's a real confound, not boilerplate — so before
+trusting any of it, four underperforming primitives got a follow-up: does
+each one solve the identical *easy* config (known solvable, since it's the
+positive control) with the same hyperparameters, and does more training
+help on the harder config? Both real, running-it-for-real questions, not
+hypothetical ones.
+
+**Round 1 (3 seeds, 3000 steps, tuned only for `standard_attention`):**
 
 | primitive | recall accuracy (mean, 3 seeds) | final loss (mean) | params |
 |---|---:|---:|---:|
@@ -146,34 +153,26 @@ total:
 | `hard_routing` | 0.09% | 0.0098 | 53,720 |
 | `ssm` | 0.09% | 0.0098 | 49,560 |
 
-Seed-to-seed spread is tiny for every primitive (std well under 1% of the
-mean in every row) and every non-baseline primitive agrees in direction
-across all 3 seeds — the *reliability* half of this result is solid.
+**Round 2 (extended training, same lr, on the identical config):**
 
-**The comparison itself is not yet a fair one, and this is a real,
-deliberate caveat, not boilerplate.** `lr` and `steps` in this config were
-tuned empirically against `standard_attention`'s own learning curve (see
-`configs/phase1_default.yaml`'s comment) — verified to sit comfortably past
-*its* sharp, grokking-like phase transition. No equivalent per-primitive
-tuning pass has been done for the other four. So this table currently shows
-"how well each primitive does under hyperparameters chosen for standard
-attention," not "how well each primitive can do." Per doc 4's own definition
-of a real finding (replicate across seeds ✅, matched parameter budget ✅
-mostly, causal verification ❌ not yet run, per-primitive tuning ❌ not yet
-done): this clears two of four bars. Treat it as a directional, hypothesis-
-generating first pass, not a conclusion.
+| primitive | round 1 (3000 steps) | round 2 (8000 steps) | seeds |
+|---|---:|---:|---:|
+| `hard_routing` | 0.09% | **85.7% / 91.9% / 86.7% (mean 88.1%)** | 3 |
+| `linear_attention` | 2.9% | 13.8% | 1 |
+| `delta_net` | 3.6% | 21.1% | 1 |
+| `ssm` (on the *easier* config, 2 learning rates) | — | 5.3% @ lr=3e-3, 5.1% @ lr=1e-2, both plateaued by step 4000 | 1 each |
 
-The directional split is still worth naming as a hypothesis to chase, not a
-finding: `standard_attention`, `linear_attention`, and `delta_net` (every
-primitive with an explicit pairwise query-key dot-product) show *some*
-non-zero recall signal; `hard_routing` (discrete argmax routing, known in
-the literature to be hard to optimize via the straight-through estimator)
-and `ssm` (a pure per-channel recurrence with no explicit content-matching
-operation at all) show exactly zero in 2 of 3 seeds. If that split survives
-per-primitive hyperparameter tuning and longer training, it would suggest
-recall specifically requires an explicit content-comparison mechanism that
-a bare selective-recurrence state update doesn't provide for free — but
-that's a hypothesis this sweep raises, not one it has confirmed.
+This changes the picture substantially, and in a specific, informative way:
+
+- **`hard_routing`'s round-1 near-zero score was pure under-training, full stop.** Its learning curve is a sharp, delayed phase transition — flat through step 5000, then 0.6% → 16.6% → 83.5% → 88.4% between steps 5000 and 8000. Given enough steps, it lands within ~10 points of standard attention, at an identical parameter budget. The straight-through Gumbel-softmax gradient is noisier early on (as the discrete-attention literature would predict) but the primitive is not fundamentally harder to optimize here — it's slower to start.
+- **`linear_attention` and `delta_net` both improve substantially with more steps (2.9%→13.8%, 3.6%→21.1%) but show no sign of a `hard_routing`-style transition yet** — their curves are smooth, gradual, still climbing at step 8000, not obviously plateaued. Unresolved: would 20,000+ steps get them to attention-family territory, or do they have a lower ceiling? The associative-recall literature (Zoology/Based) would predict a real, persistent gap here — plain linear attention's shared, additive memory dilutes stored key–value pairs as more accumulate, which is a structural property, not just an optimization speed issue — but this repo hasn't run enough steps to confirm that's what's happening versus "just needs more patience."
+- **`ssm` is the one primitive with actual evidence of a hard ceiling, not just under-training**: two different learning rates (3e-3 and 1e-2) on the *easier* config both plateau at essentially the same ~5% by step 4000 and never move from there through step 8000. That's a real, if still single-seed, signal that a per-channel recurrent gate with no explicit pairwise content-comparison operation has a much harder time with content-addressed retrieval specifically — consistent with why the SSM/Mamba literature had to add explicit selection/comparison mechanisms to do well at this kind of task.
+
+**Causal verification, run for real against two trained checkpoints** (`szoo causal-check`, 100 checks each): `standard_attention` (99.0% recall) shows `moved_toward_substitute_fraction=1.0`, mean distance to the substituted content dropping from 2.44 to 0.19. `hard_routing` (retuned, seed 1, 91.9% recall) shows `moved_toward_substitute_fraction=0.98`, distance dropping from 2.29 to 0.36 — consistent with, and a bit more decisive than, its accuracy number. Both are genuine ground-truth causal confirmations that retrieval is driven by the true source position, not a correlate — exactly the thing doc 4's whole methodology exists to make possible.
+
+**What this still doesn't establish:** `linear_attention`/`delta_net` at 8000 steps and `hard_routing`'s retuned result are single-seed (`hard_routing` aside, which has 3), not the full 5-seed replication the project's own bar calls for; nobody has caused-checked a non-attention-family primitive yet to confirm *how* it's retrieving (or failing to); `ssm`'s plateau evidence is on the easy config only, not yet on default. The revised hypothesis — recall performance splits by whether a primitive does *explicit pairwise position selection* (soft, as in standard attention, or hard, as in `hard_routing`) versus *compresses history into a shared, interference-prone state* (`linear_attention`, `delta_net`, `ssm`) — is better supported than the original "has a dot product or doesn't" framing from round 1, but it's still a hypothesis a handful of single-seed runs raised, not a finding five replicated, causally-verified seeds per primitive have confirmed.
+
+**Also caught along the way, while running this for real:** two bugs that only showed up on actual hardware, not in the CPU-only unit test suite — `causal_check_report` crashing on zero-parameter test-double models, and a device-mismatch crash when checking a `cuda`-loaded model against a CPU-generated batch. Both fixed, both now covered by regression tests. And a `train()`/`train_phase0()` ergonomics gap — passing a plain string instead of a `Path` for `run_dir` crashed only at the very last artifact-write step, after a full 8000-step run had already burned real GPU time — fixed by converting up front, so a typo like that fails immediately from now on instead of after the expensive part is done.
 
 ## Repository layout
 

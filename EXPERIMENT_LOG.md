@@ -343,3 +343,49 @@ decided differently: two learning rates, both flat by step 4000, now
 confirmed on both difficulty tiers — that's a plateau-shape signal, not a
 still-rising one, and doesn't call for the same "diminishing returns"
 reasoning at all.
+
+## 2026-07-04 — Causal-check for all 5 primitives + a real methodology fix (checklist item 4)
+
+**What:** ran `szoo causal-check` against `linear_attention`, `delta_net`,
+and `ssm`'s round-1 (weak, 3000-step, ~3%-or-less recall) checkpoints for
+the first time — no non-attention-family primitive had been causally
+checked before this. Also re-ran `standard_attention` and `hard_routing`
+for comparison under the corrected metric described below.
+
+**A real methodology gap, found by actually reading the numbers, not by a
+unit test:** all three weak checkpoints showed
+`moved_toward_substitute_fraction: 1.0` (or 0.96–1.0) — read naively, that
+looks like "100% causal effect, same as the strong primitives." But the
+raw distances told a different story: `ssm`'s mean distance to the
+substituted value moved from 1.876 to 1.872 — essentially no movement at
+all — yet still satisfied the strict "moved closer" boolean by an
+infinitesimal margin. The boolean can't distinguish a real effect from a
+technically-positive but negligible one. Added
+`relative_movement_toward_substitute` to `causal_check_report`
+(normalizes movement by the starting distance), with a regression test
+(`_WeakEffectModel`) constructing exactly this scenario — a model that
+satisfies the boolean on every check while moving a hand-chosen tiny
+amount — and asserting the new metric correctly reports it as small.
+
+**Result, all 5 primitives, `relative_movement_toward_substitute`:**
+
+| primitive | recall accuracy | moved_toward (boolean) | relative movement |
+|---|---:|---:|---:|
+| `standard_attention` | 99.0% | 1.00 | **92.9%** |
+| `hard_routing` (retuned) | 91.9% | 0.99 | **82.6%** |
+| `delta_net` (round 1) | 3.6% | 1.00 | 5.6% |
+| `linear_attention` (round 1) | 2.9% | 1.00 | 4.9% |
+| `ssm` (round 1) | 0.09% | 1.00 | **0.2%** |
+
+**Interpretation:** with the corrected metric, the boolean's misleading
+uniformity disappears completely — there's a clean, large gap between the
+two primitives with genuine, strong causal retrieval (83-93% relative
+movement) and the three that don't meaningfully retrieve at all (0.2-5.6%),
+matching their recall-accuracy ordering exactly. This is a good outcome
+for trusting the tool: once measured correctly, causal verification agrees
+with accuracy in the direction you'd expect, rather than the boolean's
+false impression that everything shows "100% causal effect." Item 4 from
+the checklist is now complete for all 5 primitives, using currently-
+available checkpoints; re-running against `linear_attention`/`delta_net`'s
+upcoming 16000-step replication checkpoints (in progress, see the stopping-
+rule entry above) is a natural, cheap follow-up once those exist.

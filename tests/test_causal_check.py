@@ -41,6 +41,32 @@ def _eval_batch():
     )
 
 
+class _WeakEffectModel(nn.Module):
+    """A model with a technically-positive but tiny causal effect -- the
+    real scenario found when causal-checking round-1's weak (near-chance)
+    linear_attention/delta_net/ssm checkpoints: patching the source moved
+    the output toward the substitute by a barely-there margin (e.g. mean
+    distance 1.876 -> 1.872), satisfying the strict "moved_toward_substitute"
+    boolean while the actual effect size was negligible. Used to test that
+    the relative-movement metric (not just the boolean) can tell the two
+    situations apart.
+    """
+
+    def forward(self, input_features: torch.Tensor, control: torch.Tensor) -> torch.Tensor:
+        batch, seq_len, _ = input_features.shape
+        baseline = input_features.mean(dim=1, keepdim=True).expand(-1, seq_len, -1)
+        output = baseline.clone()
+        for b in range(batch):
+            for t in range(seq_len):
+                if control[b, t, 0] > 0.5:
+                    pointer_key = control[b, t, 1:]
+                    for s in range(t):
+                        if control[b, s, 0] <= 0.5 and torch.equal(control[b, s, 1:], pointer_key):
+                            output[b, t] = 0.99 * baseline[b, t] + 0.01 * input_features[b, s]
+                            break
+        return output
+
+
 def test_oracle_model_shows_strong_causal_effect():
     batch = _eval_batch()
     report = causal_check_report(
@@ -51,6 +77,20 @@ def test_oracle_model_shows_strong_causal_effect():
     assert report["moved_toward_substitute_fraction"] == 1.0
     assert report["moved_away_from_original_fraction"] == 1.0
     assert report["mean_dist_to_substitute_after"] < 1e-4
+    assert report["relative_movement_toward_substitute"] > 0.9
+
+
+def test_weak_effect_model_satisfies_the_boolean_but_shows_small_relative_movement():
+    # Regression: a naive reader could see moved_toward_substitute_fraction
+    # == 1.0 and conclude a real causal effect exists. The relative-movement
+    # metric must reveal that this is a negligible effect, not a strong one,
+    # even though the strict boolean is satisfied for every check.
+    batch = _eval_batch()
+    report = causal_check_report(
+        _WeakEffectModel(), batch, n_checks=10, generator=torch.Generator().manual_seed(1)
+    )
+    assert report["moved_toward_substitute_fraction"] == 1.0
+    assert report["relative_movement_toward_substitute"] < 0.1
 
 
 def test_identity_model_shows_no_causal_effect():

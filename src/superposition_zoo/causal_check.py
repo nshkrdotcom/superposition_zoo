@@ -91,12 +91,31 @@ def causal_check_report(
         )
 
     n = len(results)
+    mean_dist_to_substitute_before = sum(r["dist_to_substitute_before"] for r in results) / n
+    mean_dist_to_substitute_after = sum(r["dist_to_substitute_after"] for r in results) / n
+
+    # The boolean moved_toward_substitute_fraction can read 1.0 even for a
+    # negligible effect (any infinitesimal movement in the right direction
+    # satisfies a strict inequality) -- found for real when causal-checking
+    # round-1's near-chance linear_attention/delta_net/ssm checkpoints,
+    # which all showed "100% moved toward substitute" despite barely-there
+    # actual movement. This normalizes the movement by the starting
+    # distance so a real effect (attention: ~92%) is distinguishable from a
+    # technically-positive but negligible one (ssm: ~0.2%).
+    if mean_dist_to_substitute_before > 0:
+        relative_movement = (
+            mean_dist_to_substitute_before - mean_dist_to_substitute_after
+        ) / mean_dist_to_substitute_before
+    else:
+        relative_movement = float("nan")
+
     return {
         "n_checks": n,
         "moved_toward_substitute_fraction": sum(r["moved_toward_substitute"] for r in results) / n,
         "moved_away_from_original_fraction": sum(r["moved_away_from_original"] for r in results) / n,
-        "mean_dist_to_substitute_before": sum(r["dist_to_substitute_before"] for r in results) / n,
-        "mean_dist_to_substitute_after": sum(r["dist_to_substitute_after"] for r in results) / n,
+        "mean_dist_to_substitute_before": mean_dist_to_substitute_before,
+        "mean_dist_to_substitute_after": mean_dist_to_substitute_after,
         "mean_dist_to_original_before": sum(r["dist_to_original_before"] for r in results) / n,
         "mean_dist_to_original_after": sum(r["dist_to_original_after"] for r in results) / n,
+        "relative_movement_toward_substitute": relative_movement,
     }

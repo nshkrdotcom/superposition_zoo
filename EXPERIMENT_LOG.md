@@ -133,3 +133,35 @@ round 2).
 in line with each seed's own recall accuracy. `hard_routing`'s recovery in
 round 2 is now causally confirmed, not just accuracy-confirmed, across its
 full replication set — item 5 from the follow-up checklist is complete.
+
+## 2026-07-04 — Fixed the packing metric (checklist item 6)
+
+**What:** `fraction_well_reconstructed` was computed over every position
+(content + pointer) flattened together, so it read `1.0` for every
+primitive in round 1 regardless of recall ability — the round-1 sweep's
+own numbers show this literally happened for `linear_attention` (2.9%
+recall, `fraction_well_reconstructed: 1.0`). Added
+`split_packing_summary()` (`metrics/packing.py`), computing
+`capacity_summary` separately for content vs. pointer positions, and wired
+it into `train()`'s `packing_metrics` (now `{"content": ..., "pointer": ...}`).
+
+**Verified against real checkpoints** (fresh held-out batch, threshold 0.05):
+
+| checkpoint | recall accuracy | content fraction_well_reconstructed | pointer fraction_well_reconstructed |
+|---|---:|---:|---:|
+| `standard_attention` seed0 | 99.0% | 1.000 | 1.000 |
+| `hard_routing` retuned seed1 | 91.9% | 1.000 | 1.000 |
+| `linear_attention` seed0 (round-1, 3000 steps) | 2.9% | 1.000 | **0.000** |
+
+**Interpretation:** the fix does exactly what it was meant to. The old flat
+metric would have (and, in round 1, literally did) report `1.0` for the
+failing `linear_attention` checkpoint; the split version correctly shows
+its pointer-position reconstruction is completely broken while its
+(trivial) content-position reconstruction is fine. Note `hard_routing` at
+91.9% *position-level* recall accuracy still shows `pointer: 1.000` here —
+that's not a contradiction: `capacity_summary` aggregates per-feature MSE
+*averaged across many instances*, so a feature can average out to "well
+reconstructed" even when ~8% of individual positions are wrong. This is a
+genuinely different (complementary, not redundant) measurement from
+per-position `recall_accuracy`, not a replacement for it — worth keeping
+both.

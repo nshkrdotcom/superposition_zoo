@@ -49,6 +49,7 @@ def run_sweep(
             )
             run_dir = runs_root / f"{primitive}_seed{seed}" if runs_root is not None else None
             result = train(config, run_dir=run_dir, device=device)
+            pointer_packing = result.packing_metrics["pointer"]
             rows.append(
                 {
                     "primitive": primitive,
@@ -56,7 +57,15 @@ def run_sweep(
                     "final_loss": result.final_loss,
                     "num_parameters": result.num_parameters,
                     "recall_accuracy": result.recall_metrics["accuracy"],
-                    "fraction_well_reconstructed": result.packing_metrics["fraction_well_reconstructed"],
+                    "content_fraction_well_reconstructed": result.packing_metrics["content"][
+                        "fraction_well_reconstructed"
+                    ],
+                    # None when the config has no pointer positions at all
+                    "pointer_fraction_well_reconstructed": (
+                        pointer_packing["fraction_well_reconstructed"]
+                        if pointer_packing is not None
+                        else float("nan")
+                    ),
                 }
             )
     return pd.DataFrame(rows)

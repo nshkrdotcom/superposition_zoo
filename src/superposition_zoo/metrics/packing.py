@@ -109,3 +109,43 @@ def capacity_summary(
         "num_well_reconstructed": num_well_reconstructed,
         "fraction_well_reconstructed": num_well_reconstructed / num_features,
     }
+
+
+def split_packing_summary(
+    target: torch.Tensor,
+    predicted: torch.Tensor,
+    is_pointer: torch.Tensor,
+    threshold: float,
+) -> dict[str, dict[str, float | int] | None]:
+    """:func:`capacity_summary`, computed separately for content vs. pointer positions.
+
+    A single aggregate summary over every position is dominated by the
+    majority-easy content positions (trivial identity reconstruction) and
+    can read as "perfect" even when every pointer position -- the actually
+    hard, recall-dependent part -- is completely wrong. Splitting by
+    position type is what makes this diagnostic instead of vacuous.
+
+    Args:
+        target: ``(batch, seq_len, n_features)`` ground truth.
+        predicted: ``(batch, seq_len, n_features)`` model output.
+        is_pointer: ``(batch, seq_len)`` bool.
+        threshold: passed through to :func:`capacity_summary`.
+
+    Returns:
+        A dict with ``"content"`` and ``"pointer"`` keys. ``"pointer"`` is
+        ``None`` (not a fabricated summary) when the batch has no pointer
+        positions at all.
+    """
+    content_mask = ~is_pointer
+    content_mse = per_feature_reconstruction_error(target[content_mask], predicted[content_mask])
+    result: dict[str, dict[str, float | int] | None] = {
+        "content": capacity_summary(content_mse, threshold=threshold)
+    }
+
+    if is_pointer.any():
+        pointer_mse = per_feature_reconstruction_error(target[is_pointer], predicted[is_pointer])
+        result["pointer"] = capacity_summary(pointer_mse, threshold=threshold)
+    else:
+        result["pointer"] = None
+
+    return result

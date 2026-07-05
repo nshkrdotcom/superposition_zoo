@@ -33,7 +33,8 @@ def test_sweep_reports_expected_columns_with_no_nans():
         "final_loss",
         "num_parameters",
         "recall_accuracy",
-        "fraction_well_reconstructed",
+        "content_fraction_well_reconstructed",
+        "pointer_fraction_well_reconstructed",
     }
     assert expected_columns.issubset(df.columns)
     assert df[list(expected_columns)].notna().all().all()

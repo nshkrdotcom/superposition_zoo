@@ -55,12 +55,16 @@ def test_train_tiny_run_creates_expected_artifacts(tmp_path):
     assert result.final_loss >= 0.0
     assert result.num_parameters > 0
     assert "accuracy" in result.recall_metrics
-    assert "fraction_well_reconstructed" in result.packing_metrics
+    assert "content" in result.packing_metrics
+    assert "pointer" in result.packing_metrics
     # regression: packing metrics must be computed per (batch*time) example
     # over the n_features feature dimension, not accidentally treating the
     # sequence-length dimension as if it were a feature count.
-    assert result.packing_metrics["num_features"] == config.features.n_features
-    assert 0.0 <= result.packing_metrics["fraction_well_reconstructed"] <= 1.0
+    assert result.packing_metrics["content"]["num_features"] == config.features.n_features
+    assert 0.0 <= result.packing_metrics["content"]["fraction_well_reconstructed"] <= 1.0
+    # this config has n_pointers > 0, so the pointer split must be present too
+    assert result.packing_metrics["pointer"] is not None
+    assert 0.0 <= result.packing_metrics["pointer"]["fraction_well_reconstructed"] <= 1.0
     assert 0.0 <= result.recall_metrics["accuracy"] <= 1.0
 
 

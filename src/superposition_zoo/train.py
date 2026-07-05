@@ -21,6 +21,7 @@ from superposition_zoo.metrics.packing import (
     capacity_summary,
     importance_weighted_loss,
     per_feature_reconstruction_error,
+    split_packing_summary,
 )
 from superposition_zoo.metrics.recall import retrieval_accuracy
 from superposition_zoo.models.sequence_model import SequenceModel
@@ -111,11 +112,9 @@ def train(config: RunConfig, run_dir: str | Path | None = None, device: str = "c
         )
         predicted = model(eval_batch.input_features.to(device), eval_batch.control.to(device)).cpu()
 
-    n_features = config.features.n_features
-    per_feature_mse = per_feature_reconstruction_error(
-        eval_batch.target.reshape(-1, n_features), predicted.reshape(-1, n_features)
+    packing_metrics = split_packing_summary(
+        eval_batch.target, predicted, eval_batch.is_pointer, threshold=config.retrieval_threshold
     )
-    packing_metrics = capacity_summary(per_feature_mse, threshold=config.retrieval_threshold)
     recall_metrics = retrieval_accuracy(
         eval_batch.target, predicted, eval_batch.is_pointer, threshold=config.retrieval_threshold
     )

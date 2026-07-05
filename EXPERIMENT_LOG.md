@@ -165,3 +165,67 @@ reconstructed" even when ~8% of individual positions are wrong. This is a
 genuinely different (complementary, not redundant) measurement from
 per-position `recall_accuracy`, not a replacement for it — worth keeping
 both.
+
+## 2026-07-04 — Literature check (checklist item 14)
+
+**What:** a handful of targeted web searches (not exhaustive) for existing
+work combining superposition/feature-isolation analysis with
+sequence-mixing-primitive comparison, per the "is this novel" discussion
+earlier in this project's history.
+
+**What's directly relevant and worth knowing about:**
+
+- **Zoology / MQAR** (Arora et al., 2023) — confirmed as the real,
+  established benchmark this repo's Phase 1 design is modeled on. Its
+  headline finding: "Transformers solve this easily; sub-quadratic models
+  (Hyena, H3, linear attention) fail dramatically, achieving near-chance
+  accuracy" — directly consistent with what round 1/round 2 found
+  empirically here (`linear_attention`/`delta_net` far behind
+  `standard_attention`/`hard_routing`). **Based** (Arora et al., follow-up)
+  is the cited fix: hybrid linear + window attention to recover recall —
+  precedent for "you need an explicit pairwise-comparison component,"
+  matching this repo's revised working hypothesis.
+- **"Understanding Input Selectivity in Mamba"** (arXiv 2506.11891) and
+  related Mamba-mechanism papers — report that Mamba solves induction/MQAR
+  not via its SSM recurrence itself but via its **short convolution**
+  component; a bare selective-recurrence layer without that convolution
+  (or comparable gating) is exactly what struggles. This directly explains,
+  with real citable grounding, *why* this repo's `ssm` primitive (a bare
+  per-channel recurrence, no convolution) plateaus: it's missing the
+  specific architectural ingredient the Mamba literature already identified
+  as necessary for recall, not a mysterious or repo-specific failure.
+- **"When Does Content-Based Routing Work?"** (arXiv 2603.20997) — the
+  closest adjacent paper found. 20+ controlled experiments, 200K-1.4B
+  params, 15+ routing mechanisms, all on task accuracy/routing precision
+  (not superposition or feature-interference geometry). Central finding:
+  "every high-performing routing system relies on pairwise token
+  comparison, while every mechanism avoiding this becomes ineffective"
+  (their recurrent-model baseline: 29% vs. near-100% for pairwise-
+  comparison methods) — independent, far larger-scale confirmation of this
+  repo's own "explicit pairwise selection vs. compressed state" hypothesis,
+  from a completely different task family (routing, not recall).
+  **Confirmed via WebFetch that this paper does not measure superposition,
+  interference, or representational-geometry metrics** — it is purely
+  performance-oriented.
+- **"An OV-Coherent Toy Model of Attention Head Superposition"**
+  (Anthropic/AlignmentForum) — extends Elhage et al.'s toy-superposition
+  framework to attention heads specifically (multiple heads sharing/
+  interfering via OV-incoherent skip-trigrams). The closest existing
+  extension of *Toy Models of Superposition* into attention mechanisms
+  found in this check — but about superposition *within* one architecture
+  family (multiple attention heads), not a cross-architecture comparison of
+  mixing primitives.
+
+**Honest conclusion:** the *ingredients* (MQAR-style recall, Mamba/SSM
+recall limitations, pairwise-comparison-is-necessary-for-routing) are all
+established, and one of them (pairwise comparison vs. compressed state)
+has now been independently confirmed by a much larger, more rigorous study
+than anything run in this repo. The *specific combination* this repo is
+attempting — ground-truth superposition/feature-packing metrics as the
+outcome variable, not task/routing accuracy, compared across a
+structurally diverse zoo including a frozen-binding primitive — was not
+found in this pass. This check was a handful of search queries, not a
+systematic review; treat "not found" as "not found in this pass," not
+"confirmed absent." The `ssm` plateau finding in particular should now be
+read as consistent with, and explained by, established Mamba-mechanism
+literature (missing convolution/gating), not as a repo-specific surprise.

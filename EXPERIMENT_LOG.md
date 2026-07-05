@@ -114,3 +114,22 @@ At 8000 steps on `default`, this is the difference between ~8.2 minutes and
 ~1.3 minutes of pure data-generation overhead per run — makes the
 multi-seed, extended-step, difficulty-grid work below actually affordable
 in this session.
+
+## 2026-07-04 — Causal verification completed for all 3 `hard_routing` seeds
+
+**What:** `szoo causal-check`, 100 checks each, against the two remaining
+retuned `hard_routing` checkpoints (seeds 0 and 2; seed 1 was checked in
+round 2).
+
+**Result:**
+
+| seed | recall accuracy | moved_toward_substitute | moved_away_from_original |
+|---|---:|---:|---:|
+| 0 | 85.7% | 0.99 | 0.95 |
+| 1 | 91.9% | 0.98 | 0.99 |
+| 2 | 86.7% | 0.98 | 0.95 |
+
+**Interpretation:** consistent, strong causal effect across all 3 seeds,
+in line with each seed's own recall accuracy. `hard_routing`'s recovery in
+round 2 is now causally confirmed, not just accuracy-confirmed, across its
+full replication set — item 5 from the follow-up checklist is complete.

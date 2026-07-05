@@ -97,6 +97,86 @@ about a trained model, not just one:
    to make, and it's a genuinely different axis from (1) and (2) — see
    `EXPERIMENT_LOG.md` for the first real numbers and why they matter.
 
+## Model architecture
+
+Every run trains a `SequenceModel` (`models/sequence_model.py`):
+
+```text
+input_features (n_features)  ++  control (1 + KEY_DIM)
+              |
+        Linear embed  ->  d_model
+              |
+   + fixed sinusoidal positional encoding (Vaswani et al. 2017 -- not learned)
+              |
+   -------------------------------------------------
+   | LayerNorm -> mixing_primitive -> + residual    |
+   | LayerNorm -> Linear(d_model, 4*d_model)        |   x n_layers (1, by default --
+   |              -> GELU -> Linear(4*d_model, ...) |     see "Known limitations")
+   |            -> + residual                       |
+   -------------------------------------------------
+              |
+        Linear decode  ->  n_features (plain regression output, no softmax)
+```
+
+The MLP block is the unremarkable, standard GPT-2/nanoGPT shape (4x
+expansion, GELU activation) — that part isn't the point. The only thing
+that changes between an "attention run" and an "SSM run" is the single
+`mixing_primitive` line: every file in `src/superposition_zoo/mixing/`
+implements the identical `forward(x) -> y` contract, so swapping
+`mixing_primitive_name` in a config is the only difference. Only three of
+the six primitives (`standard_attention`, `linear_attention`,
+`hard_routing`) are attention-family / transformer-style at all —
+`delta_net` is a linear-recurrent associative-memory architecture, `ssm`
+is a state-space model, `vsa_binding` is a symbolic binding scheme, and
+none of those three are transformers. That's deliberate: the question is
+whether the mixing-primitive *family* matters, not an internal-to-
+transformers comparison. Parameter counts range 49,560–53,980 depending on
+primitive (`d_model=64` held fixed across the whole zoo as the primary
+matched-budget lever, per "Design principles" below) — for scale, GPT-2-small
+is 124,000,000.
+
+## Why this isn't next-token prediction (and why a transformer doesn't require it)
+
+Worth being precise about this if your reference point is a GPT-style
+model — this project's predecessor, `attention_lab`, directly forked
+Karpathy's `build-nanogpt` — because this repo's training setup looks
+unfamiliar in one specific way: no vocabulary, no tokenizer, no
+cross-entropy loss, no "predict the next word." "Transformer" and
+"next-token prediction" are two separate things that only *usually* travel
+together: the original Transformer paper was encoder-decoder machine
+translation, BERT is a transformer trained with masked (not next-token)
+prediction, and Vision Transformers apply the identical attention math to
+image patches predicting a class label — no tokens, no "next" anything. A
+transformer is an *architecture* (attention blocks + MLP blocks +
+residuals + normalization); next-token prediction is one particular
+*training objective* some transformers happen to use, not a defining
+property of the architecture itself.
+
+| | a GPT-style LM (e.g. `attention_lab`'s nanoGPT fork) | this repo |
+|---|---|---|
+| input | discrete token ID → embedding table lookup | continuous sparse feature vector → `Linear` projection, no vocabulary at all |
+| output head | `Linear` → softmax over ~50,000 vocab words | plain `Linear` back to a continuous feature vector, no softmax |
+| loss | cross-entropy ("which word comes next") | MSE ("reconstruct the correct feature values at this position") |
+| training data | real internet text | procedurally generated synthetic vectors with known ground truth, regenerated fresh every batch, never read from disk |
+
+The reconstruction/regression objective isn't a workaround — it's a direct
+match to the literature this project's Phase 0 reproduces (Elhage et al.'s
+*Toy Models of Superposition*: a bottleneck autoencoder reconstructing
+sparse feature vectors via MSE, no tokens anywhere), extended with a
+sequence dimension and a retrieval requirement borrowed from the
+MQAR/"Zoology" synthetic-recall benchmark family (Arora et al. 2023) that
+the Mamba/linear-attention research community already uses to compare
+architectures on recall. Both of those are established, citable choices.
+The specific hyperparameters on top of them (`d_model=64`, `lr=0.003`, the
+exact difficulty settings in `configs/`) are *not* from a paper — they were
+found empirically, in this repo's own commit history, by watching real
+training curves and validating against the positive-control discipline
+below (does `standard_attention` actually solve the easy config cleanly?)
+rather than being handed down from literature. That split is the honest
+shape of this kind of work: architecture family and benchmark design are
+grounded in prior art; the specific dial settings for a brand-new synthetic
+task are tuned empirically, not looked up.
+
 ## Quickstart
 
 This repo uses [`uv`](https://docs.astral.sh/uv/) exclusively — no conda,

@@ -389,3 +389,71 @@ the checklist is now complete for all 5 primitives, using currently-
 available checkpoints; re-running against `linear_attention`/`delta_net`'s
 upcoming 16000-step replication checkpoints (in progress, see the stopping-
 rule entry above) is a natural, cheap follow-up once those exist.
+
+## 2026-07-04 — Assessed sequential-recurrence performance (checklist item 13); decided not to parallelize
+
+**What:** profiled forward-pass wall time (CPU, 20 iterations, warmed up)
+for all 5 primitives at the current `default` config shape, to decide
+whether `delta_net`/`ssm`'s sequential-loop recurrence is worth
+parallelizing, now that the batch generator itself is no longer the
+dominant bottleneck (see Phase 0 entry above).
+
+**Result:**
+
+| primitive | ms/forward (CPU) | vs. `standard_attention` |
+|---|---:|---:|
+| `standard_attention` | 5.57 | 1.0x |
+| `hard_routing` | 4.00 | 0.7x |
+| `ssm` | 3.41 | 0.6x |
+| `linear_attention` | 10.84 | 1.9x |
+| `delta_net` | 20.19 | 3.6x |
+
+**Decision: not attempted this session.** Two real surprises here worth
+recording: `ssm` is not a bottleneck at all — its recurrence is a single
+elementwise update per step (`h = a*h + c`), cheap enough that it's
+actually faster than standard attention. `delta_net` is the real cost
+(3.6x attention), from three einsum calls per sequential step rather than
+one. At 16000 steps, that's roughly `(20.19-5.57)ms * 16000 ≈ 234s` (~4
+minutes) of extra wall clock per run — real, but smaller than the
+batch-generator win already banked (Phase 0: ~8 minutes saved per
+8000-step run), and a correct chunked/parallel-scan rewrite of the delta
+rule is a nontrivial, error-prone undertaking that risks correctness
+regressions in a primitive whose core recurrence is currently validated by
+a hand-computed closed-form test. Revisit if `delta_net` becomes central to
+a specific follow-up question that needs many more long runs of it
+specifically; not worth the risk for this session's remaining scope.
+
+## 2026-07-04 — Go/no-go decision: real-language-scale check via `attention_lab` (checklist item 17)
+
+**Decision: no-go for this session, explicitly, not a silent skip.**
+
+Doc 4's own gating logic: a real-language-scale check is warranted only
+once a toy-scale primitive shows a clear, replicated, causally-verified
+*dissociation* between accuracy and feature-isolation quality — the actual
+novel claim this whole program exists to test, not "does an architecture
+get a good score."
+
+As of this entry, the interference measurement above (item 8) found
+exactly one hint of such a dissociation — `standard_attention` vs.
+`hard_routing`, similar accuracy (99.0% vs. 91.9%) but a 4.4x gap in
+pointer-position interference — from **one batch, one seed each**. That is
+nowhere near "clear, replicated, causally-verified." Attempting a
+multi-hour real-language run on the strength of one unreplicated number
+would repeat exactly the mistake this whole follow-up round was designed
+to avoid (see round 1's own caveat about treating a first-pass result as a
+conclusion).
+
+**On feasibility, since it was asked directly:** `attention_lab`'s own
+E001-E004 work already ran full 30M-parameter, 3000-step FineWeb-Edu
+training on this exact host (RTX 5060 Ti, 16GB VRAM, 192GB system RAM),
+taking anywhere from ~2 hours (`standard`) to ~13 hours (`cp_trilinear`)
+per run depending on architecture. So yes, technically feasible on this
+hardware — but expensive enough that it should never be attempted
+speculatively, only once there's a specific, replicated toy-scale result
+worth checking at real-language scale.
+
+**What would flip this to a go:** replicate the `standard_attention` vs.
+`hard_routing` interference gap across ≥3 seeds each (cheap, minutes, no
+new capability needed) and confirm it holds up. If it does, that's exactly
+the kind of finding worth spending hours of real-language compute to
+check.

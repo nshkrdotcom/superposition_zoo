@@ -82,3 +82,35 @@ far regardless of recall ability, meaning it hasn't actually differentiated
 anything yet — the core "does architecture affect feature isolation, not
 just accuracy" question this whole project exists to ask has not yet been
 measured.
+
+## 2026-07-04 — Infrastructure: vectorized the batch generator
+
+**Why:** every item in the next round of work (more seeds, more steps, a
+difficulty grid) is bottlenecked by `recall_task.py`'s per-position Python
+candidate-source scan, profiled earlier at ~87ms/batch on the pre-retune
+harder settings. Doing this before spending more GPU time on experiments
+that would each pay that cost thousands of times.
+
+**What changed:** replaced the O(batch_size x n_pointers x seq_len)
+candidate-scanning loop with vectorized tensor ops (topk-based
+without-replacement position sampling, a batched causal/non-pointer
+validity mask, and a random-priority/argmax trick for uniform-among-valid
+source sampling), keeping a small O(batch_size x n_pointers) loop only for
+the final O(1)-per-pointer writes. Protected entirely by the existing
+15-test suite in `test_recall_task.py` as the correctness oracle — every
+statistical/structural property it checks (causality, no-pointer-sources,
+exact pointer counts under generous settings, deterministic given a seed,
+control-channel key-matching) held unchanged.
+
+**Result, re-profiled at the actual current configs (batch=64):**
+
+| config | before | after | speedup |
+|---|---:|---:|---:|
+| `default` (current zoo config) | 61.8 ms/batch | 10.0 ms/batch | 6.2x |
+| `easy` | 10.9 ms/batch | 4.9 ms/batch | 2.2x |
+| original harder (pre-retune) config | 85.5 ms/batch | 19.0 ms/batch | 4.5x |
+
+At 8000 steps on `default`, this is the difference between ~8.2 minutes and
+~1.3 minutes of pure data-generation overhead per run — makes the
+multi-seed, extended-step, difficulty-grid work below actually affordable
+in this session.

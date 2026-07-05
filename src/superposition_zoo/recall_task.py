@@ -125,25 +125,55 @@ def generate_recall_batch(
     source_position = torch.full((batch_size, seq_len), -1, dtype=torch.long)
     key = torch.randn(batch_size, seq_len, KEY_DIM, generator=generator)
 
-    eligible = torch.arange(min_gap, seq_len)
+    if n_pointers > 0:
+        eligible = torch.arange(min_gap, seq_len)
+        n_eligible = eligible.numel()
 
-    for b in range(batch_size):
-        perm = torch.randperm(eligible.numel(), generator=generator)
-        chosen = torch.sort(eligible[perm[:n_pointers]]).values
+        # Pick n_pointers distinct positions per row via random priority + topk
+        # (equivalent to sampling without replacement, fully vectorized across
+        # the batch instead of a per-row torch.randperm call).
+        priorities = torch.rand(batch_size, n_eligible, generator=generator)
+        _, top_idx = torch.topk(priorities, n_pointers, dim=1)
+        chosen = eligible[top_idx]  # (batch_size, n_pointers) absolute positions
 
-        for t in chosen.tolist():
-            candidate_sources = [s for s in range(0, t - min_gap + 1) if not is_pointer[b, s]]
-            if not candidate_sources:
-                continue
-            pick = torch.randint(0, len(candidate_sources), (1,), generator=generator).item()
-            s = candidate_sources[pick]
+        # A position's pointer status depends only on which positions were
+        # chosen, not on the order sources get resolved in (any earlier
+        # pointer position that could act as a source is already known here,
+        # regardless of processing order) -- so every pointer flag can be set
+        # up front, before resolving any sources.
+        is_pointer.scatter_(1, chosen, True)
 
-            is_pointer[b, t] = True
-            source_position[b, t] = s
-            input_features[b, t] = 0.0
-            target[b, t] = content_values[b, s]
-            active_mask[b, t] = content_active[b, s]
-            key[b, t] = key[b, s]  # exact key match: this is the retrieval signal
+        # Validity mask for every (row, pointer, candidate-source) triple:
+        # causally earlier than min_gap, and not itself a pointer.
+        positions = torch.arange(seq_len).view(1, 1, seq_len)
+        causal_ok = positions <= (chosen.unsqueeze(-1) - min_gap)
+        not_pointer = (~is_pointer).unsqueeze(1)
+        valid = causal_ok & not_pointer  # (batch_size, n_pointers, seq_len)
+        has_valid_source = valid.any(dim=-1)
+
+        # Uniform-among-valid-candidates sampling via the random-priority /
+        # argmax trick: assigning iid continuous priorities and taking the
+        # argmax among valid entries is equivalent to sampling uniformly
+        # among them, without needing a per-triple Python-level scan.
+        source_priorities = torch.rand(batch_size, n_pointers, seq_len, generator=generator)
+        source_priorities = source_priorities.masked_fill(~valid, -1.0)
+        chosen_source = source_priorities.argmax(dim=-1)  # (batch_size, n_pointers)
+
+        # Only a small, O(batch_size * n_pointers) loop remains (vs. the
+        # original O(batch_size * n_pointers * seq_len) candidate scan) --
+        # each iteration does O(1) tensor writes, no scanning.
+        for b in range(batch_size):
+            for i in range(n_pointers):
+                t = int(chosen[b, i])
+                if not has_valid_source[b, i]:
+                    is_pointer[b, t] = False  # no valid source: revert to a content position
+                    continue
+                s = int(chosen_source[b, i])
+                source_position[b, t] = s
+                input_features[b, t] = 0.0
+                target[b, t] = content_values[b, s]
+                active_mask[b, t] = content_active[b, s]
+                key[b, t] = key[b, s]  # exact key match: this is the retrieval signal
 
     control = torch.cat([is_pointer.float().unsqueeze(-1), key], dim=-1)
 

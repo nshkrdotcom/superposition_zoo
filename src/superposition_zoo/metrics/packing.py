@@ -63,6 +63,24 @@ def interference_matrix(
     return result
 
 
+def mean_absolute_interference(interference_mat: torch.Tensor) -> float:
+    """Summarize an ``(n_features, n_features)`` interference matrix as one scalar.
+
+    Mean absolute value across off-diagonal cells where a comparison was
+    possible (``NaN`` cells from :func:`interference_matrix`'s
+    no-contrast case are excluded, not treated as zero).
+
+    Returns:
+        A float, or ``NaN`` if every off-diagonal cell was itself ``NaN``.
+    """
+    off_diagonal_mask = ~torch.eye(interference_mat.shape[0], dtype=torch.bool)
+    values = interference_mat[off_diagonal_mask]
+    valid = values[~torch.isnan(values)]
+    if valid.numel() == 0:
+        return float("nan")
+    return valid.abs().mean().item()
+
+
 def importance_weighted_loss(
     true_values: torch.Tensor,
     reconstructed: torch.Tensor,

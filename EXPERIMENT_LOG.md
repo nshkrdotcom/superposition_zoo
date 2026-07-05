@@ -229,3 +229,60 @@ systematic review; treat "not found" as "not found in this pass," not
 "confirmed absent." The `ssm` plateau finding in particular should now be
 read as consistent with, and explained by, established Mamba-mechanism
 literature (missing convolution/gating), not as a repo-specific surprise.
+
+## 2026-07-04 — First interference measurement: the actual research question (checklist item 8)
+
+**What:** `position_masked_interference` (new, wraps the already-tested
+`interference_matrix` from the Phase 0 work) applied to four real trained
+checkpoints, on one fresh held-out batch (512 sequences, `default`
+difficulty), separately for content vs. pointer positions, summarized as
+`mean_absolute_interference`. This is the first time this project has
+measured cross-feature interference on a Phase 1 model at all — everything
+before this (recall accuracy, packing capacity) was either a task-
+performance metric or a per-feature-averaged summary, neither of which can
+reveal whether one feature's presence makes another harder to reconstruct.
+
+**Result:**
+
+| checkpoint | recall accuracy | content mean\|interference\| | pointer mean\|interference\| |
+|---|---:|---:|---:|
+| `standard_attention` seed0 | 99.0% | 0.00001 | **0.00051** |
+| `hard_routing` retuned seed1 | 91.9% | 0.00001 | 0.00227 |
+| `delta_net` seed0 (round 1, 3000 steps) | 3.6% | 0.00001 | 0.00347 |
+| `linear_attention` seed0 (round 1, 3000 steps) | 2.9% | 0.00001 | 0.00355 |
+
+**Interpretation, read carefully — this is one batch, one seed each, not
+yet replicated:**
+
+Content-position interference is ~zero for every primitive — expected,
+since content reconstruction is a trivial near-identity mapping regardless
+of architecture, so there's no cross-feature structure to interfere with
+in that regime. Pointer-position interference varies substantially and, at
+the extremes, tracks recall accuracy in the obvious direction: the two
+primitives that are essentially failing at recall (`linear_attention`,
+`delta_net`, ~3% accuracy) both show ~7x more interference at pointer
+positions than `standard_attention`. That's not a dissociation — accuracy
+and feature-isolation quality move together here, which is itself a
+legitimate, useful (if less exciting) finding: this first pass does not
+yet show an architecture that's bad at the task but clean about it, or
+good at the task but a mess internally.
+
+**But there is a real, more interesting signal in the middle of the
+table.** `standard_attention` and `hard_routing` have *similar* recall
+accuracy (99.0% vs. 91.9%, a 7-point gap) but a *4.4x* gap in pointer
+interference (0.00051 vs. 0.00227) — proportionally much larger than the
+accuracy gap. That's the first hint of exactly the kind of dissociation
+this whole project exists to look for: two primitives solving the task at
+roughly comparable levels of success, but doing so with measurably
+different internal cleanliness. One batch, one seed, is nowhere near
+enough to call this a finding — but it's the most interesting single
+number produced so far, and the clear next thing to replicate before
+anything else in this line of measurement.
+
+**Known gap in this pass:** the `linear_attention`/`delta_net` numbers here
+are from their *original round-1, 3000-step* checkpoints (2.9%/3.6%
+accuracy) because the later extended-training runs (13.8%→24.2% and
+21.1%→30.9% respectively) were run as monitoring-only trials that never
+persisted a checkpoint. Re-running interference analysis against their
+best (24000-step) checkpoints is a clear, cheap follow-up once those are
+retrained with `run_dir` set.

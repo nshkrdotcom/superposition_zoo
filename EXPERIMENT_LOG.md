@@ -457,3 +457,43 @@ worth checking at real-language scale.
 new capability needed) and confirm it holds up. If it does, that's exactly
 the kind of finding worth spending hours of real-language compute to
 check.
+
+## 2026-07-04 — Harder recall variants: scoped, not built (checklist item 10)
+
+**Decision:** designed, not implemented, this session — honestly scoped
+rather than silently dropped, per the checklist's own explicit allowance
+for this item.
+
+**Two concrete variants worth building next, specified precisely enough to
+implement directly when picked back up:**
+
+1. **Multi-hop retrieval.** A pointer's key matches not a content
+   position's key directly, but *another pointer's* key — i.e., resolving
+   pointer A requires first resolving pointer B (which A points to), which
+   points to a real content position. Tests whether a mixing primitive can
+   chain retrieval operations, not just perform one in isolation. Minimal
+   implementation change: `generate_recall_batch` would need to allow a
+   pointer's `source_position` to itself be a pointer for controlled hop
+   depths (currently explicitly excluded, "sources are never themselves
+   pointers" — see `test_sources_are_never_themselves_pointers`), plus a
+   `max_hops` parameter and a corresponding ground-truth field recording
+   the full hop chain, not just the immediate source, so causal-check can
+   still verify the *final* resolved content is right.
+2. **Distractor keys.** Add near-miss keys — vectors deliberately close
+   (in cosine similarity) to a pointer's true target key but not identical
+   — at other positions, to test whether a primitive's matching mechanism
+   is doing exact/robust comparison or something fuzzier that a
+   close-but-wrong key could fool. Minimal implementation change: after
+   generating the random key tensor, for a controlled fraction of non-
+   source positions, set `key[b, s'] = key[b, s] + small_gaussian_noise`
+   for a chosen true source `s`, and track which positions are "true
+   source" vs. "distractor" so recall accuracy and causal-check can be
+   broken down by whether a wrong retrieval came from a random guess or a
+   genuine near-miss confusion.
+
+**Why not built now:** both are real, bounded scope, but this session's
+remaining time is better spent finishing the replication/interference
+follow-through already in progress (items 1/8's redo) and the
+documentation pass (README, AGENTS.md) than opening a new benchmark
+variant with its own full TDD cycle. Flagged here with enough detail that
+picking this up cold later doesn't require re-deriving the design.
